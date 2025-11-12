@@ -4,6 +4,8 @@ import { extractTextFromCode } from "../core/extractor";
 import { CorrectionManager } from "../core/correctionManager";
 import { showCorrectionPanel } from "../ui/panel/panelController";
 import { decorateCorrections } from "../ui/panel/decorations";
+import { clearDiagnostics, updateDiagnostics } from "../ui/diagnostics";
+import { updateStatusBar } from "../ui/statusBar";
 
 const correctionManager = new CorrectionManager();
 
@@ -26,6 +28,9 @@ export async function scanFile() {
     async () => {
       const corrections = await correctionManager.correctBlocks(editor, texts);
       decorateCorrections(editor, corrections);
+      showCorrectionPanel(corrections);
+      updateDiagnostics(editor.document, corrections);
+      updateStatusBar(corrections);
       showCorrectionPanel(corrections);
     }
   );
@@ -64,6 +69,8 @@ export async function applyCorrection() {
   if (!editor) return vscode.window.showWarningMessage("Aucun fichier ouvert");
 
   const corrections = await correctionManager.applyCorrections(editor);
+  clearDiagnostics();
+  updateStatusBar([]);
   vscode.window.showInformationMessage(
     `TextLint AI : ${corrections.length} correction(s) appliquée(s)`
   );
