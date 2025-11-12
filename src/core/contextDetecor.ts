@@ -1,3 +1,4 @@
+/* eslint-disable curly */
 export type TextType = "comment" | "string" | "docstring";
 
 export function detectTextType(
