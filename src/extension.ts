@@ -2,6 +2,13 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from "vscode";
 import { promptApiKey } from "./config/settings";
+import {
+  applyCorrection,
+  refresh,
+  scanFile,
+  scanSelection,
+  showPanel,
+} from "./commands/scan";
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -32,6 +39,19 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(loginCommand);
+
+  const commands = [
+    { id: "textlint-ai.scanFile", func: scanFile },
+    { id: "textlint-ai.scanSelection", func: scanSelection },
+    { id: "textlint-ai.applyCorrection", func: applyCorrection },
+    { id: "textlint-ai.showPanel", func: showPanel },
+    { id: "textlint-ai.refresh", func: refresh },
+  ];
+
+  commands.forEach((cmd) => {
+    const disposable = vscode.commands.registerCommand(cmd.id, cmd.func);
+    context.subscriptions.push(disposable);
+  });
 }
 
 // This method is called when your extension is deactivated

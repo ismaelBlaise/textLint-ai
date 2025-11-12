@@ -1,6 +1,14 @@
+/* eslint-disable curly */
+import * as vscode from "vscode";
 import { AIClient } from "./aiClient";
 import { cacheService, CacheService } from "../services/cacheService";
+import { extractTextFromCode } from "./extractor";
 
+export interface Correction {
+  text: string;
+  start: vscode.Position;
+  end: vscode.Position;
+}
 export class CorrectionManager {
   private aiClient: AIClient;
 
@@ -30,5 +38,54 @@ export class CorrectionManager {
     }
 
     return correction;
+  }
+
+  async applyCorrections(editor?: vscode.TextEditor): Promise<Correction[]> {
+    editor = editor || vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showWarningMessage(
+        "Aucun éditeur actif pour appliquer les corrections."
+      );
+      return [];
+    }
+
+    const document = editor.document;
+    const code = document.getText();
+
+    const texts = extractTextFromCode(code);
+
+    if (!texts.length) {
+      vscode.window.showInformationMessage("Aucun texte à corriger trouvé.");
+      return [];
+    }
+
+    const correctedTexts = await this.correctBlocks(texts.map((t) => t.text));
+
+    const corrections: Correction[] = [];
+
+    texts.forEach((originalText, index) => {
+      const startOffset = code.indexOf(originalText.text);
+      if (startOffset === -1) return;
+
+      const start = document.positionAt(startOffset);
+      const end = document.positionAt(startOffset + originalText.text.length);
+
+      corrections.push({
+        text: correctedTexts[index],
+        start,
+        end,
+      });
+    });
+
+    await editor.edit((editBuilder) => {
+      corrections.forEach((correction) => {
+        editBuilder.replace(
+          new vscode.Range(correction.start, correction.end),
+          correction.text
+        );
+      });
+    });
+
+    return corrections;
   }
 }

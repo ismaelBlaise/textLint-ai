@@ -9,7 +9,13 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:textlint-ai.scanFile",
+    "onCommand:textlint-ai.scanSelection",
+    "onCommand:textlint-ai.applyCorrection",
+    "onCommand:textlint-ai.showPanel",
+    "onCommand:textlint-ai.refresh"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -20,6 +26,26 @@
       {
         "command": "textlint-ai.login",
         "title": "TextLint AI : Se connecter à ChatGPT"
+      },
+      {
+        "command": "textlint-ai.scanFile",
+        "title": "Analyser le fichier"
+      },
+      {
+        "command": "textlint-ai.scanSelection",
+        "title": "Analyser la sélection"
+      },
+      {
+        "command": "textlint-ai.applyCorrection",
+        "title": "Appliquer la correction"
+      },
+      {
+        "command": "textlint-ai.showPanel",
+        "title": "Ouvrir le panneau"
+      },
+      {
+        "command": "textlint-ai.refresh",
+        "title": "Rafraîchir les diagnostics"
       }
     ]
   },
