@@ -1,7 +1,7 @@
 {
   "name": "textlint-ai",
   "displayName": "textLint-ai",
-  "description": "",
+  "description": "Correction intelligente des textes dans le code, propulsée par L'intelligence Artificielle.",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.105.0"
