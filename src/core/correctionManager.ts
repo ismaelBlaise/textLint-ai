@@ -1,14 +1,15 @@
-/* eslint-disable curly */
 import * as vscode from "vscode";
 import { AIClient } from "./aiClient";
-import { cacheService, CacheService } from "../services/cacheService";
+import { cacheService } from "../services/cacheService";
 import { extractTextFromCode } from "./extractor";
 
 export interface Correction {
   text: string;
   start: vscode.Position;
   end: vscode.Position;
+  original?: string;
 }
+
 export class CorrectionManager {
   private aiClient: AIClient;
 
@@ -16,28 +17,47 @@ export class CorrectionManager {
     this.aiClient = new AIClient();
   }
 
-  async correctBlocks(texts: string[]): Promise<string[]> {
-    const results: string[] = [];
-    for (const text of texts) {
-      let correction = cacheService.get(text);
-      if (!correction) {
-        correction = (await this.aiClient.getCorrection(text)) || "";
-        cacheService.set(text, correction);
+  async correctBlocks(
+    editor: vscode.TextEditor,
+    texts: { text: string; start: vscode.Position; end: vscode.Position }[]
+  ): Promise<Correction[]> {
+    const corrections: Correction[] = [];
+
+    for (const t of texts) {
+      let corrected = cacheService.get(t.text);
+      if (!corrected) {
+        corrected = (await this.aiClient.getCorrection(t.text)) || t.text;
+        cacheService.set(t.text, corrected);
       }
-      results.push(correction);
+
+      corrections.push({
+        text: corrected,
+        start: t.start,
+        end: t.end,
+        original: t.text,
+      });
     }
 
-    return results;
+    return corrections;
   }
 
-  async correctText(text: string): Promise<string> {
-    let correction = cacheService.get(text);
-    if (!correction) {
-      correction = (await this.aiClient.getCorrection(text)) || "";
-      cacheService.set(text, correction);
+  async correctText(
+    editor: vscode.TextEditor,
+    textBlock: { text: string; start: vscode.Position; end: vscode.Position }
+  ): Promise<Correction> {
+    let corrected = cacheService.get(textBlock.text);
+    if (!corrected) {
+      corrected =
+        (await this.aiClient.getCorrection(textBlock.text)) || textBlock.text;
+      cacheService.set(textBlock.text, corrected);
     }
 
-    return correction;
+    return {
+      text: corrected,
+      start: textBlock.start,
+      end: textBlock.end,
+      original: textBlock.text,
+    };
   }
 
   async applyCorrections(editor?: vscode.TextEditor): Promise<Correction[]> {
@@ -52,37 +72,23 @@ export class CorrectionManager {
     const document = editor.document;
     const code = document.getText();
 
-    const texts = extractTextFromCode(code);
+    const texts = extractTextFromCode(code).map((text) => {
+      const startOffset = code.indexOf(text.text);
+      const start = document.positionAt(startOffset);
+      const end = document.positionAt(startOffset + text.text.length);
+      return { text: text.text, start, end };
+    });
 
     if (!texts.length) {
       vscode.window.showInformationMessage("Aucun texte à corriger trouvé.");
       return [];
     }
 
-    const correctedTexts = await this.correctBlocks(texts.map((t) => t.text));
-
-    const corrections: Correction[] = [];
-
-    texts.forEach((originalText, index) => {
-      const startOffset = code.indexOf(originalText.text);
-      if (startOffset === -1) return;
-
-      const start = document.positionAt(startOffset);
-      const end = document.positionAt(startOffset + originalText.text.length);
-
-      corrections.push({
-        text: correctedTexts[index],
-        start,
-        end,
-      });
-    });
+    const corrections = await this.correctBlocks(editor, texts);
 
     await editor.edit((editBuilder) => {
-      corrections.forEach((correction) => {
-        editBuilder.replace(
-          new vscode.Range(correction.start, correction.end),
-          correction.text
-        );
+      corrections.forEach((c) => {
+        editBuilder.replace(new vscode.Range(c.start, c.end), c.text);
       });
     });
 
