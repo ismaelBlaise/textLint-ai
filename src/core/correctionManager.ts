@@ -1,4 +1,3 @@
-/* eslint-disable curly */
 import * as vscode from "vscode";
 import { AIClient } from "./aiClient";
 import { cacheService } from "../services/cacheService";
