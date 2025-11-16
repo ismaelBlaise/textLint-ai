@@ -22,9 +22,6 @@ export class ConfigurationManager {
     ignorePatterns: ["TODO", "FIXME", "XXX"],
   };
 
-  /**
-   * Récupère la configuration complète avec valeurs par défaut
-   */
   static getConfig(): TextlintConfig {
     const config = vscode.workspace.getConfiguration(this.CONFIG_KEY);
     return {
@@ -44,23 +41,14 @@ export class ConfigurationManager {
     };
   }
 
-  /**
-   * Récupère la clé API de manière sécurisée
-   */
   static getApiKey(): string | undefined {
     return this.getConfig().apikey;
   }
 
-  /**
-   * Valide la clé API
-   */
   static validateApiKey(apikey: string): boolean {
     return /^sk-[a-zA-Z0-9]{32,}$/.test(apikey);
   }
 
-  /**
-   * Invite l'utilisateur à saisir sa clé API avec validation
-   */
   static async promptApiKey(): Promise<boolean> {
     const apikey = await vscode.window.showInputBox({
       prompt: "Entrez votre clé API OpenAI personnelle",
@@ -79,7 +67,11 @@ export class ConfigurationManager {
     });
 
     if (apikey) {
-      await this.updateConfig("apikey", apikey, vscode.ConfigurationTarget.Global);
+      await this.updateConfig(
+        "apikey",
+        apikey,
+        vscode.ConfigurationTarget.Global
+      );
       vscode.window.showInformationMessage("✓ Clé API enregistrée avec succès");
       return true;
     } else {
@@ -88,9 +80,6 @@ export class ConfigurationManager {
     }
   }
 
-  /**
-   * Met à jour une valeur de configuration
-   */
   static async updateConfig<K extends keyof TextlintConfig>(
     key: K,
     value: TextlintConfig[K],
@@ -101,9 +90,6 @@ export class ConfigurationManager {
       .update(key, value, target);
   }
 
-  /**
-   * Réinitialise la configuration aux valeurs par défaut
-   */
   static async resetConfig(): Promise<void> {
     const config = vscode.workspace.getConfiguration(this.CONFIG_KEY);
     const keys = Object.keys(this.DEFAULT_CONFIG) as (keyof TextlintConfig)[];
@@ -119,9 +105,6 @@ export class ConfigurationManager {
     vscode.window.showInformationMessage("Configuration réinitialisée");
   }
 
-  /**
-   * Vérifie si la configuration est valide
-   */
   static isConfigValid(): boolean {
     const config = this.getConfig();
     return !!config.apikey && this.validateApiKey(config.apikey);

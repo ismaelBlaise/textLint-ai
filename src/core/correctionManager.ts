@@ -33,9 +33,6 @@ export class CorrectionManager {
     this.textExtractor = new TextExtractor();
   }
 
-  /**
-   * Corrige tous les blocs de texte avec statistiques
-   */
   async correctBlocks(
     editor: vscode.TextEditor,
     texts: ExtractedText[],
@@ -117,9 +114,6 @@ export class CorrectionManager {
     return { corrections, stats };
   }
 
-  /**
-   * Corrige un seul bloc avec analyse détaillée
-   */
   async correctTextDetailed(
     textBlock: ExtractedText,
     options: CorrectionOptions = {}
@@ -130,7 +124,6 @@ export class CorrectionManager {
     );
 
     if (!result) {
-      // Fallback sur correction simple
       const corrected = await this.aiClient.getCorrection(
         textBlock.text,
         options
@@ -161,9 +154,6 @@ export class CorrectionManager {
     };
   }
 
-  /**
-   * Applique les corrections au document
-   */
   async applyCorrections(
     editor?: vscode.TextEditor,
     options: CorrectionOptions = {}
@@ -188,7 +178,6 @@ export class CorrectionManager {
     const document = editor.document;
     const config = ConfigurationManager.getConfig();
 
-    // Extraction du texte
     const texts = this.textExtractor.extractFromDocument(document, {
       language: config.language,
       ignorePatterns: config.ignorePatterns,
@@ -208,17 +197,14 @@ export class CorrectionManager {
       };
     }
 
-    // Correction
     const { corrections, stats } = await this.correctBlocks(
       editor,
       texts,
       options
     );
 
-    // Sauvegarde pour undo
     this.saveToUndoStack(document.uri.toString(), corrections);
 
-    // Application des corrections
     const success = await editor.edit((editBuilder) => {
       corrections.forEach((c) => {
         if (c.text !== c.original) {
@@ -235,9 +221,6 @@ export class CorrectionManager {
     return { corrections, stats };
   }
 
-  /**
-   * Corrige uniquement la sélection
-   */
   async correctSelection(
     editor?: vscode.TextEditor,
     options: CorrectionOptions = {}
@@ -279,9 +262,6 @@ export class CorrectionManager {
     return corrections;
   }
 
-  /**
-   * Affiche un aperçu des corrections avant application
-   */
   async previewCorrections(editor?: vscode.TextEditor): Promise<void> {
     editor = editor || vscode.window.activeTextEditor;
     if (!editor) {
@@ -296,7 +276,6 @@ export class CorrectionManager {
       return;
     }
 
-    // Créer un document virtuel pour la preview
     const { corrections } = await this.correctBlocks(editor, texts);
     const changes = corrections.filter((c) => c.text !== c.original);
 
@@ -305,7 +284,6 @@ export class CorrectionManager {
       return;
     }
 
-    // Afficher les changements dans un QuickPick
     const items = changes.map((c) => ({
       label: `Ligne ${c.start.line + 1}`,
       description: c.original,
@@ -328,9 +306,6 @@ export class CorrectionManager {
     }
   }
 
-  /**
-   * Annule les dernières corrections
-   */
   async undoCorrections(editor?: vscode.TextEditor): Promise<void> {
     editor = editor || vscode.window.activeTextEditor;
     if (!editor) {
@@ -354,39 +329,26 @@ export class CorrectionManager {
     vscode.window.showInformationMessage("Corrections annulées.");
   }
 
-  /**
-   * Efface le cache de corrections
-   */
   clearCache(): void {
     cacheService.clear();
     vscode.window.showInformationMessage("Cache de corrections effacé.");
   }
 
-  /**
-   * Obtient l'historique des corrections pour un document
-   */
   getHistory(documentUri: string): Correction[] | undefined {
     return this.correctionHistory.get(documentUri);
   }
 
-  /**
-   * Sauvegarde dans la pile d'annulation
-   */
   private saveToUndoStack(
     documentUri: string,
     corrections: Correction[]
   ): void {
     this.undoStack.push({ document: documentUri, corrections });
 
-    // Limiter la taille de la pile
     if (this.undoStack.length > 10) {
       this.undoStack.shift();
     }
   }
 
-  /**
-   * Affiche les statistiques de correction
-   */
   private showStats(stats: CorrectionStats): void {
     const message = `✓ Correction terminée: ${stats.corrected}/${
       stats.totalTexts
@@ -401,9 +363,6 @@ export class CorrectionManager {
     }
   }
 
-  /**
-   * Analyse la qualité du texte sans correction
-   */
   async analyzeText(editor?: vscode.TextEditor): Promise<void> {
     editor = editor || vscode.window.activeTextEditor;
     if (!editor) {

@@ -24,10 +24,7 @@ export class ContextDetector {
             multiLineStart: [/^\s*\/\*/],
             multiLineEnd: [/\*\/\s*$/],
           },
-          stringPatterns: [
-            /(['"`])(?:(?!\1|\\).|\\.)*\1/,
-            /`(?:[^`\\]|\\.)*`/, // Template literals
-          ],
+          stringPatterns: [/(['"`])(?:(?!\1|\\).|\\.)*\1/, /`(?:[^`\\]|\\.)*`/],
           docstringPatterns: [/^\s*\/\*\*[\s\S]*?\*\//],
           keywords: [
             "function",
@@ -75,12 +72,9 @@ export class ContextDetector {
           },
           stringPatterns: [
             /(['"])(?:(?!\1|\\).|\\.)*\1/,
-            /f(['"])(?:(?!\1|\\).|\\.)*\1/, // f-strings
+            /f(['"])(?:(?!\1|\\).|\\.)*\1/,
           ],
-          docstringPatterns: [
-            /^\s*("""|''')/,
-            /^\s*r("""|''')/, // Raw docstrings
-          ],
+          docstringPatterns: [/^\s*("""|''')/, /^\s*r("""|''')/],
           keywords: ["def", "class", "import", "from", "if", "for", "while"],
         },
       ],
@@ -114,10 +108,7 @@ export class ContextDetector {
             multiLineStart: [/^\s*\/\*/],
             multiLineEnd: [/\*\/\s*$/],
           },
-          stringPatterns: [
-            /"(?:[^"\\]|\\.)*"/,
-            /@"(?:[^"]|"")*"/, // Verbatim strings
-          ],
+          stringPatterns: [/"(?:[^"\\]|\\.)*"/, /@"(?:[^"]|"")*"/],
           docstringPatterns: [/^\s*\/\/\//, /^\s*\/\*\*[\s\S]*?\*\//],
           keywords: [
             "public",
@@ -195,9 +186,6 @@ export class ContextDetector {
     ]
   );
 
-  /**
-   * Détecte le type de texte avec analyse contextuelle
-   */
   static detectTextType(
     line: string,
     language: string = "auto"
@@ -214,28 +202,23 @@ export class ContextDetector {
         continue;
       }
 
-      // Vérifier les commentaires sur une seule ligne
       for (const pattern of definition.commentPatterns.singleLine) {
         if (pattern.test(line)) {
           return "comment";
         }
       }
 
-      // Vérifier les docstrings
       for (const pattern of definition.docstringPatterns) {
         if (pattern.test(line)) {
           return "docstring";
         }
       }
 
-      // Vérifier les chaînes de caractères
       for (const pattern of definition.stringPatterns) {
         if (pattern.test(line) && !this.isStringInComment(line, definition)) {
           return "string";
         }
       }
-
-      // Vérifier le début de commentaires multilignes
       for (const pattern of definition.commentPatterns.multiLineStart) {
         if (pattern.test(line)) {
           return "comment";
@@ -246,16 +229,12 @@ export class ContextDetector {
     return null;
   }
 
-  /**
-   * Détecte le langage à partir du contenu
-   */
   static detectLanguage(code: string): string {
     const scores = new Map<string, number>();
 
     for (const [langId, definition] of this.languageDefinitions) {
       let score = 0;
 
-      // Vérifier les mots-clés
       if (definition.keywords) {
         for (const keyword of definition.keywords) {
           const regex = new RegExp(`\\b${keyword}\\b`, "g");
@@ -266,7 +245,6 @@ export class ContextDetector {
         }
       }
 
-      // Vérifier les patterns de commentaires
       const lines = code.split("\n");
       for (const line of lines) {
         for (const pattern of definition.commentPatterns.singleLine) {
@@ -279,7 +257,6 @@ export class ContextDetector {
       scores.set(langId, score);
     }
 
-    // Retourner le langage avec le score le plus élevé
     let maxScore = 0;
     let detectedLang = "javascript";
 
@@ -293,9 +270,6 @@ export class ContextDetector {
     return detectedLang;
   }
 
-  /**
-   * Vérifie si une chaîne est dans un commentaire
-   */
   private static isStringInComment(
     line: string,
     definition: LanguageDefinition
@@ -313,15 +287,11 @@ export class ContextDetector {
     return false;
   }
 
-  /**
-   * Détermine les langages à vérifier
-   */
   private static getLanguagesToCheck(language: string): string[] {
     if (language === "auto") {
       return Array.from(this.languageDefinitions.keys());
     }
 
-    // Mapping des alias
     const aliases: Record<string, string> = {
       js: "javascript",
       ts: "typescript",
@@ -337,9 +307,6 @@ export class ContextDetector {
       : ["javascript"];
   }
 
-  /**
-   * Analyse la structure du code pour détecter les blocs
-   */
   static analyzeCodeStructure(
     code: string,
     language: string
@@ -373,15 +340,11 @@ export class ContextDetector {
     };
   }
 
-  /**
-   * Enregistre une nouvelle définition de langage
-   */
   static registerLanguage(definition: LanguageDefinition): void {
     this.languageDefinitions.set(definition.id, definition);
   }
 }
 
-// Fonction de compatibilité
 export function detectTextType(
   line: string,
   language: string = "auto"

@@ -41,14 +41,10 @@ export class AIClient {
     this.config = ConfigurationManager.getConfig();
   }
 
-  /**
-   * Obtient une correction avec gestion des erreurs et retry
-   */
   async getCorrection(
     text: string,
     options: CorrectionOptions = {}
   ): Promise<string | undefined> {
-    // Déduplication des requêtes
     const cacheKey = this.getCacheKey(text, options);
     if (this.requestQueue.has(cacheKey)) {
       return this.requestQueue.get(cacheKey);
@@ -65,9 +61,6 @@ export class AIClient {
     }
   }
 
-  /**
-   * Obtient une correction détaillée avec analyse des changements
-   */
   async getCorrectionDetailed(
     text: string,
     options: CorrectionOptions = {}
@@ -83,9 +76,6 @@ export class AIClient {
     }
   }
 
-  /**
-   * Corrige en streaming pour une meilleure UX
-   */
   async *getCorrectionStream(
     text: string,
     options: CorrectionOptions = {}
@@ -113,9 +103,6 @@ export class AIClient {
     }
   }
 
-  /**
-   * Corrige plusieurs textes en batch avec optimisation
-   */
   async correctBatch(
     texts: string[],
     options: CorrectionOptions = {}
@@ -133,11 +120,10 @@ export class AIClient {
         if (result.status === "fulfilled" && result.value) {
           results.set(text, result.value);
         } else {
-          results.set(text, text); // Garder l'original en cas d'échec
+          results.set(text, text);
         }
       });
 
-      // Pause pour éviter le rate limiting
       if (i + batchSize < texts.length) {
         await this.sleep(500);
       }
@@ -146,9 +132,6 @@ export class AIClient {
     return results;
   }
 
-  /**
-   * Effectue la correction avec retry automatique
-   */
   private async performCorrection(
     text: string,
     options: CorrectionOptions
@@ -157,9 +140,6 @@ export class AIClient {
     return this.makeRequestWithRetry(prompt);
   }
 
-  /**
-   * Fait une requête avec retry exponentiel
-   */
   private async makeRequestWithRetry(
     prompt: string,
     jsonMode: boolean = false
@@ -196,9 +176,6 @@ export class AIClient {
     throw lastError || new Error("Échec après plusieurs tentatives");
   }
 
-  /**
-   * Construit le prompt de correction
-   */
   private buildPrompt(text: string, options: CorrectionOptions): string {
     if (options.customPrompt) {
       return options.customPrompt.replace("{text}", text);
@@ -222,9 +199,6 @@ export class AIClient {
     return prompt;
   }
 
-  /**
-   * Construit un prompt pour correction détaillée
-   */
   private buildDetailedPrompt(
     text: string,
     options: CorrectionOptions
@@ -249,9 +223,6 @@ Texte à corriger:
 "${text}"`;
   }
 
-  /**
-   * Parse le résultat de correction détaillée
-   */
   private parseCorrectionResult(
     originalText: string,
     response: string
@@ -277,23 +248,14 @@ Texte à corriger:
     }
   }
 
-  /**
-   * Génère une clé de cache
-   */
   private getCacheKey(text: string, options: CorrectionOptions): string {
     return `${text}:${JSON.stringify(options)}`;
   }
 
-  /**
-   * Utilitaire de pause
-   */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  /**
-   * Vérifie la santé de l'API
-   */
   async healthCheck(): Promise<boolean> {
     try {
       const response = await this.client.chat.completions.create({
@@ -308,9 +270,6 @@ Texte à corriger:
     }
   }
 
-  /**
-   * Obtient les modèles disponibles
-   */
   async getAvailableModels(): Promise<string[]> {
     try {
       const models = await this.client.models.list();

@@ -14,7 +14,6 @@ export async function scanFile() {
     return vscode.window.showWarningMessage("Aucun fichier ouvert");
   }
 
-  // Vérifier la configuration
   if (!ConfigurationManager.isConfigValid()) {
     const configure = await vscode.window.showWarningMessage(
       "Clé API non configurée. Voulez-vous la configurer maintenant ?",
@@ -35,7 +34,6 @@ export async function scanFile() {
     },
     async (progress, token) => {
       try {
-        // Analyse du document
         progress.report({ message: "Extraction du texte...", increment: 10 });
 
         const { corrections, stats } = await correctionManager.applyCorrections(
@@ -52,7 +50,6 @@ export async function scanFile() {
           increment: 30,
         });
 
-        // Mise à jour de l'interface
         decorateCorrections(editor, corrections);
         updateDiagnostics(editor.document, corrections);
         updateStatusBar(corrections);
@@ -62,10 +59,8 @@ export async function scanFile() {
           increment: 30,
         });
 
-        // Afficher le panneau avec les statistiques
         showCorrectionPanel(corrections, stats);
 
-        // Message de succès
         if (corrections.length > 0) {
           vscode.window.showInformationMessage(
             `✓ ${stats.corrected} correction(s) trouvée(s) en ${(
@@ -99,7 +94,6 @@ export async function scanSelection() {
     return vscode.window.showWarningMessage("Aucune sélection");
   }
 
-  // Vérifier la configuration
   if (!ConfigurationManager.isConfigValid()) {
     const configure = await vscode.window.showWarningMessage(
       "Clé API non configurée. Voulez-vous la configurer maintenant ?",

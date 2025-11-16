@@ -27,9 +27,6 @@ export class TextExtractor {
     ignorePatterns: ["TODO", "FIXME", "XXX", "HACK"],
   };
 
-  /**
-   * Extrait le texte d'un document avec analyse contextuelle
-   */
   extractFromDocument(
     document: vscode.TextDocument,
     options: ExtractionOptions = {}
@@ -47,9 +44,6 @@ export class TextExtractor {
     );
   }
 
-  /**
-   * Extrait le texte d'une sélection
-   */
   extractFromSelection(
     document: vscode.TextDocument,
     selection: vscode.Selection,
@@ -63,9 +57,6 @@ export class TextExtractor {
     return this.extractTextFromCode(text, selection.start, language, opts);
   }
 
-  /**
-   * Extrait le texte avec algorithme de parsing avancé
-   */
   extractTextFromCode(
     code: string,
     startPosition: vscode.Position = new vscode.Position(0, 0),
@@ -85,7 +76,6 @@ export class TextExtractor {
       const line = lines[i];
       const trimmedLine = line.trim();
 
-      // Gestion des docstrings multilignes
       if (inDocstring) {
         multilineBuffer.push(line);
         if (line.includes(docstringDelimiter)) {
@@ -105,7 +95,6 @@ export class TextExtractor {
         continue;
       }
 
-      // Gestion des commentaires multilignes
       if (inMultilineComment) {
         multilineBuffer.push(line);
         if (line.includes("*/")) {
@@ -125,7 +114,6 @@ export class TextExtractor {
         continue;
       }
 
-      // Détection du début de commentaire multilignes
       if (line.includes("/*") && !line.includes("*/")) {
         inMultilineComment = true;
         multilineBuffer = [line];
@@ -133,7 +121,6 @@ export class TextExtractor {
         continue;
       }
 
-      // Détection du début de docstring
       if (/^\s*("""|''')/.test(line) && !/("""|''').*\1/.test(line)) {
         inDocstring = true;
         docstringDelimiter = line.includes('"""') ? '"""' : "'''";
@@ -142,7 +129,6 @@ export class TextExtractor {
         continue;
       }
 
-      // Extraction des éléments sur une seule ligne
       const extractions = this.extractFromSingleLine(
         line,
         i,
@@ -156,9 +142,6 @@ export class TextExtractor {
     return this.filterAndSortExtractions(extracted, options);
   }
 
-  /**
-   * Extrait le texte d'une seule ligne avec parsing précis
-   */
   private extractFromSingleLine(
     line: string,
     lineIndex: number,
@@ -178,7 +161,6 @@ export class TextExtractor {
     let confidence = 1.0;
 
     if (type === "comment") {
-      // Extraction intelligente des commentaires
       const commentMatch = line.match(
         /\/\/\s*(.+)|#\s*(.+)|\/\*\s*(.+)\s*\*\//
       );
@@ -188,7 +170,6 @@ export class TextExtractor {
         confidence = this.calculateConfidence(text, type);
       }
     } else if (type === "string") {
-      // Extraction des chaînes de caractères avec gestion des échappements
       const stringMatches = this.extractStrings(line);
       for (const match of stringMatches) {
         extracted.push({
@@ -228,16 +209,13 @@ export class TextExtractor {
     return extracted;
   }
 
-  /**
-   * Extrait toutes les chaînes de caractères d'une ligne
-   */
   private extractStrings(line: string): Array<{ text: string; start: number }> {
     const strings: Array<{ text: string; start: number }> = [];
     const regex = /(['"`])(?:(?!\1|\\).|\\.)*\1/g;
     let match;
 
     while ((match = regex.exec(line)) !== null) {
-      const text = match[0].slice(1, -1); // Enlever les guillemets
+      const text = match[0].slice(1, -1);
       if (text.trim()) {
         strings.push({ text: text.trim(), start: match.index + 1 });
       }
@@ -246,9 +224,6 @@ export class TextExtractor {
     return strings;
   }
 
-  /**
-   * Ajoute un texte extrait avec calcul de position
-   */
   private addExtractedText(
     extracted: ExtractedText[],
     text: string,
