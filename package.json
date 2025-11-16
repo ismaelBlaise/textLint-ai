@@ -1,82 +1,281 @@
 {
   "name": "textlint-ai",
-  "displayName": "textLint-ai",
-  "description": "Correction intelligente des textes dans le code, propulsée par L'intelligence Artificielle.",
-  "version": "0.0.1",
+  "displayName": "TextLint AI",
+  "description": "Correction intelligente de texte avec IA (OpenAI GPT)",
+  "version": "1.0.0",
+  "publisher": "your-publisher-name",
+  "icon": "images/icon.png",
   "engines": {
-    "vscode": "^1.105.0"
+    "vscode": "^1.80.0"
   },
   "categories": [
+    "Linters",
     "Other"
   ],
-  "activationEvents": [
-    "onCommand:textlint-ai.scanFile",
-    "onCommand:textlint-ai.scanSelection",
-    "onCommand:textlint-ai.applyCorrection",
-    "onCommand:textlint-ai.showPanel",
-    "onCommand:textlint-ai.refresh"
+  "keywords": [
+    "textlint",
+    "ai",
+    "openai",
+    "gpt",
+    "correction",
+    "grammar",
+    "spelling",
+    "writing"
   ],
-  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "textlint-ai.helloWorld",
-        "title": "Hello World"
-      },
-      {
         "command": "textlint-ai.login",
-        "title": "TextLint AI : Se connecter à ChatGPT"
+        "title": "TextLint AI: Configurer la clé API",
+        "icon": "$(key)"
       },
       {
         "command": "textlint-ai.scanFile",
-        "title": "Analyser le fichier"
+        "title": "TextLint AI: Analyser le fichier",
+        "icon": "$(file-code)"
       },
       {
         "command": "textlint-ai.scanSelection",
-        "title": "Analyser la sélection"
+        "title": "TextLint AI: Analyser la sélection",
+        "icon": "$(selection)"
       },
       {
         "command": "textlint-ai.applyCorrection",
-        "title": "Appliquer la correction"
+        "title": "TextLint AI: Appliquer les corrections",
+        "icon": "$(check)"
+      },
+      {
+        "command": "textlint-ai.previewCorrections",
+        "title": "TextLint AI: Prévisualiser les corrections",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "textlint-ai.undoCorrections",
+        "title": "TextLint AI: Annuler les corrections",
+        "icon": "$(discard)"
       },
       {
         "command": "textlint-ai.showPanel",
-        "title": "Ouvrir le panneau"
+        "title": "TextLint AI: Afficher le panneau",
+        "icon": "$(list-ordered)"
       },
       {
         "command": "textlint-ai.refresh",
-        "title": "Rafraîchir les diagnostics"
+        "title": "TextLint AI: Rafraîchir",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "textlint-ai.analyzeText",
+        "title": "TextLint AI: Analyser la qualité du texte"
+      },
+      {
+        "command": "textlint-ai.clearCache",
+        "title": "TextLint AI: Vider le cache"
+      },
+      {
+        "command": "textlint-ai.configure",
+        "title": "TextLint AI: Configuration"
+      },
+      {
+        "command": "textlint-ai.resetConfig",
+        "title": "TextLint AI: Réinitialiser la configuration"
+      },
+      {
+        "command": "textlint-ai.showStats",
+        "title": "TextLint AI: Afficher les statistiques"
+      },
+      {
+        "command": "textlint-ai.exportDiagnostics",
+        "title": "TextLint AI: Exporter les diagnostics"
+      },
+      {
+        "command": "textlint-ai.exportCacheStats",
+        "title": "TextLint AI: Exporter les statistiques du cache"
+      },
+      {
+        "command": "textlint-ai.toggleAutoAnalysis",
+        "title": "TextLint AI: Activer/Désactiver l'analyse automatique"
+      },
+      {
+        "command": "textlint-ai.showMenu",
+        "title": "TextLint AI: Menu"
       }
-    ]
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "submenu": "textlint-ai.menu",
+          "group": "1_modification"
+        }
+      ],
+      "textlint-ai.menu": [
+        {
+          "command": "textlint-ai.scanFile",
+          "group": "1_analysis"
+        },
+        {
+          "command": "textlint-ai.scanSelection",
+          "group": "1_analysis",
+          "when": "editorHasSelection"
+        },
+        {
+          "command": "textlint-ai.previewCorrections",
+          "group": "2_corrections"
+        },
+        {
+          "command": "textlint-ai.applyCorrection",
+          "group": "2_corrections"
+        },
+        {
+          "command": "textlint-ai.undoCorrections",
+          "group": "2_corrections"
+        },
+        {
+          "command": "textlint-ai.configure",
+          "group": "3_settings"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "textlint-ai.scanSelection",
+          "when": "editorHasSelection"
+        }
+      ]
+    },
+    "submenus": [
+      {
+        "id": "textlint-ai.menu",
+        "label": "TextLint AI"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "textlint-ai.scanFile",
+        "key": "ctrl+shift+l",
+        "mac": "cmd+shift+l",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "textlint-ai.scanSelection",
+        "key": "ctrl+shift+k",
+        "mac": "cmd+shift+k",
+        "when": "editorHasSelection"
+      },
+      {
+        "command": "textlint-ai.applyCorrection",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "TextLint AI",
+      "properties": {
+        "textlint-ai.apikey": {
+          "type": "string",
+          "default": "",
+          "description": "Clé API OpenAI",
+          "order": 1
+        },
+        "textlint-ai.model": {
+          "type": "string",
+          "default": "gpt-4o-mini",
+          "enum": [
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-4",
+            "gpt-4-turbo",
+            "gpt-3.5-turbo"
+          ],
+          "description": "Modèle OpenAI à utiliser",
+          "order": 2
+        },
+        "textlint-ai.language": {
+          "type": "string",
+          "default": "fr",
+          "enum": [
+            "fr",
+            "en",
+            "es",
+            "de",
+            "it"
+          ],
+          "enumDescriptions": [
+            "Français",
+            "English",
+            "Español",
+            "Deutsch",
+            "Italiano"
+          ],
+          "description": "Langue pour les corrections",
+          "order": 3
+        },
+        "textlint-ai.maxTokens": {
+          "type": "number",
+          "default": 500,
+          "minimum": 50,
+          "maximum": 2000,
+          "description": "Nombre maximum de tokens par requête",
+          "order": 4
+        },
+        "textlint-ai.temperature": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Température du modèle (0 = déterministe, 2 = créatif)",
+          "order": 5
+        },
+        "textlint-ai.autoCorrect": {
+          "type": "boolean",
+          "default": false,
+          "description": "Activer l'analyse automatique lors de la modification du texte",
+          "order": 6
+        },
+        "textlint-ai.ignorePatterns": {
+          "type": "array",
+          "default": [
+            "TODO",
+            "FIXME",
+            "XXX",
+            "HACK"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Patterns à ignorer lors de l'analyse",
+          "order": 7
+        },
+        "textlint-ai.customPrompt": {
+          "type": "string",
+          "default": "",
+          "description": "Prompt personnalisé (utilisez {text} pour le texte à corriger)",
+          "order": 8
+        }
+      }
+    }
   },
   "scripts": {
-    "vscode:prepublish": "npm run package",
-    "compile": "npm run check-types && npm run lint && node esbuild.js",
-    "watch": "npm-run-all -p watch:*",
-    "watch:esbuild": "node esbuild.js --watch",
-    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-    "package": "npm run check-types && npm run lint && node esbuild.js --production",
-    "compile-tests": "tsc -p . --outDir out",
-    "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "npm run compile-tests && npm run compile && npm run lint",
-    "check-types": "tsc --noEmit",
-    "lint": "eslint src",
-    "test": "vscode-test"
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
   },
   "devDependencies": {
-    "@types/mocha": "^10.0.10",
-    "@types/node": "22.x",
-    "@types/vscode": "^1.105.0",
-    "@typescript-eslint/eslint-plugin": "^8.45.0",
-    "@typescript-eslint/parser": "^8.45.0",
-    "@vscode/test-cli": "^0.0.11",
-    "@vscode/test-electron": "^2.5.2",
-    "esbuild": "^0.25.10",
-    "eslint": "^9.36.0",
-    "npm-run-all": "^4.1.5",
-    "typescript": "^5.9.3"
+    "@types/vscode": "^1.80.0",
+    "@types/node": "^18.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.0.0"
   },
   "dependencies": {
-    "openai": "^6.8.1"
+    "openai": "^4.20.0"
   }
 }
