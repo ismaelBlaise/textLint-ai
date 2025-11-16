@@ -257,9 +257,6 @@ export class TextExtractor {
     });
   }
 
-  /**
-   * Nettoie le texte extrait
-   */
   private cleanText(text: string, type: TextType): string {
     let cleaned = text.trim();
 
@@ -278,9 +275,6 @@ export class TextExtractor {
     return cleaned.trim();
   }
 
-  /**
-   * Détermine si le texte doit être inclus
-   */
   private shouldIncludeText(
     text: string,
     options: Required<ExtractionOptions>
@@ -289,20 +283,17 @@ export class TextExtractor {
       return false;
     }
 
-    // Vérifie si le texte contient des patterns à ignorer
     for (const pattern of options.ignorePatterns) {
       if (text.toUpperCase().includes(pattern)) {
         return false;
       }
     }
 
-    // Ignore les textes qui sont principalement du code
     const codePattern = /^[\{\}\[\]\(\);,\.=<>!&\|\+\-\*\/\\]+$/;
     if (codePattern.test(text)) {
       return false;
     }
 
-    // Ignore les URLs
     if (/^https?:\/\//.test(text)) {
       return false;
     }
@@ -310,30 +301,23 @@ export class TextExtractor {
     return true;
   }
 
-  /**
-   * Calcule un score de confiance pour le texte extrait
-   */
   private calculateConfidence(text: string, type: TextType): number {
     let confidence = 1.0;
 
-    // Pénalité pour les textes trop courts
     if (text.length < 10) {
       confidence -= 0.2;
     }
 
-    // Bonus pour les textes avec ponctuation correcte
     if (/[.!?]$/.test(text)) {
       confidence += 0.1;
     }
 
-    // Pénalité pour les textes avec beaucoup de symboles
     const symbolRatio =
       (text.match(/[^a-zA-Z0-9\s]/g) || []).length / text.length;
     if (symbolRatio > 0.3) {
       confidence -= symbolRatio * 0.5;
     }
 
-    // Bonus pour les docstrings
     if (type === "docstring") {
       confidence += 0.1;
     }
@@ -341,9 +325,6 @@ export class TextExtractor {
     return Math.max(0, Math.min(1, confidence));
   }
 
-  /**
-   * Récupère le contexte autour du texte
-   */
   private getContext(
     lines: string[],
     startLine: number,
@@ -356,9 +337,6 @@ export class TextExtractor {
     return lines.slice(start, end + 1).join("\n");
   }
 
-  /**
-   * Filtre et trie les extractions par confiance
-   */
   private filterAndSortExtractions(
     extracted: ExtractedText[],
     options: Required<ExtractionOptions>
@@ -369,7 +347,6 @@ export class TextExtractor {
   }
 }
 
-// Fonction de compatibilité
 export function extractTextFromCode(
   code: string,
   startPosition: vscode.Position = new vscode.Position(0, 0),
