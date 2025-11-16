@@ -3,8 +3,8 @@
   "displayName": "TextLint AI",
   "description": "Correction intelligente de texte avec IA (OpenAI GPT)",
   "version": "1.0.0",
-  "publisher": "your-publisher-name",
-  "icon": "images/icon.png",
+  "publisher": "ismaBlaise",
+  "icon": "assets/icons/logo.png",
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -23,7 +23,23 @@
     "writing"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onCommand:textlint-ai.login",
+    "onCommand:textlint-ai.scanFile",
+    "onCommand:textlint-ai.scanSelection",
+    "onCommand:textlint-ai.applyCorrection",
+    "onCommand:textlint-ai.previewCorrections",
+    "onCommand:textlint-ai.undoCorrections",
+    "onCommand:textlint-ai.showPanel",
+    "onCommand:textlint-ai.refresh",
+    "onCommand:textlint-ai.analyzeText",
+    "onCommand:textlint-ai.clearCache",
+    "onCommand:textlint-ai.configure",
+    "onCommand:textlint-ai.resetConfig",
+    "onCommand:textlint-ai.showStats",
+    "onCommand:textlint-ai.exportDiagnostics",
+    "onCommand:textlint-ai.exportCacheStats",
+    "onCommand:textlint-ai.toggleAutoAnalysis",
+    "onCommand:textlint-ai.showMenu"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -268,8 +284,9 @@
     "test": "node ./out/test/runTest.js"
   },
   "devDependencies": {
-    "@types/vscode": "^1.80.0",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^18.0.0",
+    "@types/vscode": "^1.80.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "eslint": "^8.0.0",
