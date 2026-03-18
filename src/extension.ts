@@ -2,11 +2,14 @@ import * as vscode from "vscode";
 import { ConfigurationManager, promptApiKey } from "./config/settings";
 import {
   applyCorrection,
+  applySingleCorrection,
+  autoAnalyzeDocument,
   refresh,
   scanFile,
   scanSelection,
   showPanel,
   previewCorrections,
+  ignoreSingleCorrection,
   undoCorrections,
   analyzeText,
   clearCache,
@@ -84,6 +87,14 @@ function registerCommands(context: vscode.ExtensionContext) {
     { id: "textlint-ai.scanFile", func: scanFile },
     { id: "textlint-ai.scanSelection", func: scanSelection },
     { id: "textlint-ai.applyCorrection", func: applyCorrection },
+    {
+      id: "textlint-ai.applySingleCorrection",
+      func: (correctionId: string) => applySingleCorrection(correctionId),
+    },
+    {
+      id: "textlint-ai.ignoreSingleCorrection",
+      func: (correctionId: string) => ignoreSingleCorrection(correctionId),
+    },
     { id: "textlint-ai.showPanel", func: showPanel },
     { id: "textlint-ai.refresh", func: refresh },
 
@@ -182,7 +193,7 @@ function enableAutoAnalysisFeature() {
 
   autoAnalysisDisposable = enableAutoAnalysis((document) => {
     if (shouldAnalyzeDocument(document)) {
-      scanFile();
+      autoAnalyzeDocument(document);
     }
   });
 }

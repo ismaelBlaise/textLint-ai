@@ -3,7 +3,7 @@ import { ConfigurationManager } from "../config/settings";
 
 export interface CorrectionOptions {
   language?: string;
-  style?: "formal" | "casual" | "technical";
+  style?: "formal" | "casual" | "technical" | "neutral";
   context?: string;
   customPrompt?: string;
 }
@@ -27,17 +27,17 @@ export interface Change {
 export class AIClient {
   private client: OpenAI;
   private config: ReturnType<typeof ConfigurationManager.getConfig>;
-  private requestQueue: Map<string, Promise<string>> = new Map();
+  private requestQueue = new Map<string, Promise<string>>();
   private retryAttempts = 3;
   private retryDelay = 1000;
 
   constructor() {
-    const apikey = ConfigurationManager.getApiKey();
-    if (!apikey) {
-      throw new Error("Clé API OpenAI manquante !");
+    const apiKey = ConfigurationManager.getApiKey();
+    if (!apiKey) {
+      throw new Error("Cle API OpenAI manquante.");
     }
 
-    this.client = new OpenAI({ apiKey: apikey });
+    this.client = new OpenAI({ apiKey });
     this.config = ConfigurationManager.getConfig();
   }
 
@@ -54,8 +54,7 @@ export class AIClient {
     this.requestQueue.set(cacheKey, promise);
 
     try {
-      const result = await promise;
-      return result;
+      return await promise;
     } finally {
       this.requestQueue.delete(cacheKey);
     }
@@ -71,7 +70,7 @@ export class AIClient {
       const response = await this.makeRequestWithRetry(prompt, true);
       return this.parseCorrectionResult(text, response);
     } catch (error) {
-      console.error("Erreur lors de la correction détaillée:", error);
+      console.error("Erreur lors de la correction detaillee:", error);
       return undefined;
     }
   }
@@ -82,24 +81,19 @@ export class AIClient {
   ): AsyncGenerator<string, void, unknown> {
     const prompt = this.buildPrompt(text, options);
 
-    try {
-      const stream = await this.client.chat.completions.create({
-        model: this.config.model,
-        messages: [{ role: "user", content: prompt }],
-        temperature: this.config.temperature,
-        max_tokens: this.config.maxTokens,
-        stream: true,
-      });
+    const stream = await this.client.chat.completions.create({
+      model: this.config.model,
+      messages: [{ role: "user", content: prompt }],
+      temperature: this.config.temperature,
+      max_tokens: this.config.maxTokens,
+      stream: true,
+    });
 
-      for await (const chunk of stream) {
-        const content = chunk.choices[0]?.delta?.content;
-        if (content) {
-          yield content;
-        }
+    for await (const chunk of stream) {
+      const content = chunk.choices[0]?.delta?.content;
+      if (content) {
+        yield content;
       }
-    } catch (error) {
-      console.error("Erreur de streaming:", error);
-      throw error;
     }
   }
 
@@ -110,26 +104,55 @@ export class AIClient {
     const results = new Map<string, string>();
     const batchSize = 5;
 
-    for (let i = 0; i < texts.length; i += batchSize) {
-      const batch = texts.slice(i, i + batchSize);
-      const promises = batch.map((text) => this.getCorrection(text, options));
-      const batchResults = await Promise.allSettled(promises);
+    for (let index = 0; index < texts.length; index += batchSize) {
+      const batch = texts.slice(index, index + batchSize);
+      const batchResults = await Promise.allSettled(
+        batch.map((text) => this.getCorrection(text, options))
+      );
 
-      batchResults.forEach((result, index) => {
-        const text = batch[index];
+      batchResults.forEach((result, itemIndex) => {
+        const originalText = batch[itemIndex];
         if (result.status === "fulfilled" && result.value) {
-          results.set(text, result.value);
+          results.set(originalText, result.value);
         } else {
-          results.set(text, text);
+          results.set(originalText, originalText);
         }
       });
 
-      if (i + batchSize < texts.length) {
+      if (index + batchSize < texts.length) {
         await this.sleep(500);
       }
     }
 
     return results;
+  }
+
+  async healthCheck(): Promise<boolean> {
+    try {
+      const response = await this.client.chat.completions.create({
+        model: this.config.model,
+        messages: [{ role: "user", content: "ping" }],
+        max_tokens: 5,
+      });
+
+      return Boolean(response.choices[0]?.message?.content);
+    } catch (error) {
+      console.error("Health check failed:", error);
+      return false;
+    }
+  }
+
+  async getAvailableModels(): Promise<string[]> {
+    try {
+      const models = await this.client.models.list();
+      return models.data
+        .filter((model) => model.id.includes("gpt"))
+        .map((model) => model.id)
+        .sort();
+    } catch (error) {
+      console.error("Erreur lors de la recuperation des modeles:", error);
+      return ["gpt-4o-mini", "gpt-4o", "gpt-4"];
+    }
   }
 
   private async performCorrection(
@@ -153,27 +176,25 @@ export class AIClient {
           messages: [{ role: "user", content: prompt }],
           temperature: this.config.temperature,
           max_tokens: this.config.maxTokens,
-          ...(jsonMode && { response_format: { type: "json_object" } }),
+          ...(jsonMode ? { response_format: { type: "json_object" as const } } : {}),
         });
 
         const content = response.choices[0]?.message?.content;
         if (!content) {
-          throw new Error("Réponse vide du modèle");
+          throw new Error("Reponse vide du modele.");
         }
 
         return content;
       } catch (error) {
         lastError = error as Error;
-        console.error(`Tentative ${attempt + 1} échouée:`, error);
 
         if (attempt < this.retryAttempts - 1) {
-          const delay = this.retryDelay * Math.pow(2, attempt);
-          await this.sleep(delay);
+          await this.sleep(this.retryDelay * Math.pow(2, attempt));
         }
       }
     }
 
-    throw lastError || new Error("Échec après plusieurs tentatives");
+    throw lastError || new Error("Echec apres plusieurs tentatives.");
   }
 
   private buildPrompt(text: string, options: CorrectionOptions): string {
@@ -183,20 +204,18 @@ export class AIClient {
 
     const language = options.language || this.config.language;
     const style = options.style || "neutral";
+    const styleInstruction =
+      style !== "neutral" ? ` avec un style ${style}` : "";
+    const contextBlock = options.context
+      ? `\nContexte complet:\n"""${options.context}"""`
+      : "";
 
-    let prompt = `Corrige le texte suivant en ${language} (orthographe, grammaire et style)`;
+    return `Corrige le texte suivant en ${language}${styleInstruction}. Respecte le sens de la phrase, le contexte, l'ordre des mots, l'orthographe, la grammaire et la ponctuation.${contextBlock}
 
-    if (style !== "neutral") {
-      prompt += ` avec un style ${style}`;
-    }
+Texte a corriger:
+"${text}"
 
-    if (options.context) {
-      prompt += `\n\nContexte: ${options.context}`;
-    }
-
-    prompt += `\n\nTexte à corriger:\n"${text}"\n\nRéponds uniquement avec le texte corrigé, sans explication.`;
-
-    return prompt;
+Reponds uniquement avec le texte corrige.`;
   }
 
   private buildDetailedPrompt(
@@ -204,36 +223,41 @@ export class AIClient {
     options: CorrectionOptions
   ): string {
     const language = options.language || this.config.language;
+    const contextBlock = options.context
+      ? `\nContexte complet:\n"""${options.context}"""\n`
+      : "";
 
-    return `Analyse et corrige le texte suivant en ${language}. Réponds en JSON avec:
+    return `Analyse et corrige le texte suivant en ${language}. Corrige la phrase complete avec le bon contexte, le bon ordre des mots, l'orthographe, la grammaire, le style et la ponctuation.${contextBlock}
+Reponds uniquement en JSON avec cette structure:
 {
-  "correctedText": "texte corrigé",
+  "correctedText": "texte corrige",
   "changes": [
     {
       "type": "spelling|grammar|style|punctuation",
       "original": "texte original",
-      "corrected": "texte corrigé",
+      "corrected": "texte corrige",
       "explanation": "explication courte"
     }
   ],
   "confidence": 0.95
 }
 
-Texte à corriger:
+Texte a corriger:
 "${text}"`;
   }
 
   private parseCorrectionResult(
     originalText: string,
     response: string
-  ): CorrectionResult | undefined {
+  ): CorrectionResult {
     try {
       const parsed = JSON.parse(response);
       return {
         correctedText: parsed.correctedText || originalText,
         originalText,
-        changes: parsed.changes || [],
-        confidence: parsed.confidence || 0.8,
+        changes: Array.isArray(parsed.changes) ? parsed.changes : [],
+        confidence:
+          typeof parsed.confidence === "number" ? parsed.confidence : 0.8,
         model: this.config.model,
       };
     } catch (error) {
@@ -254,32 +278,5 @@ Texte à corriger:
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  async healthCheck(): Promise<boolean> {
-    try {
-      const response = await this.client.chat.completions.create({
-        model: this.config.model,
-        messages: [{ role: "user", content: "ping" }],
-        max_tokens: 5,
-      });
-      return !!response.choices[0]?.message?.content;
-    } catch (error) {
-      console.error("Health check failed:", error);
-      return false;
-    }
-  }
-
-  async getAvailableModels(): Promise<string[]> {
-    try {
-      const models = await this.client.models.list();
-      return models.data
-        .filter((m) => m.id.includes("gpt"))
-        .map((m) => m.id)
-        .sort();
-    } catch (error) {
-      console.error("Erreur lors de la récupération des modèles:", error);
-      return ["gpt-4o-mini", "gpt-4o", "gpt-4"];
-    }
   }
 }

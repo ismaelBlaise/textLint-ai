@@ -5,12 +5,15 @@ import { TextExtractor, ExtractedText } from "./extractor";
 import { ConfigurationManager } from "../config/settings";
 
 export interface Correction {
+  id: string;
   text: string;
   start: vscode.Position;
   end: vscode.Position;
   original?: string;
   confidence?: number;
   changes?: CorrectionResult["changes"];
+  context?: string;
+  documentUri?: string;
 }
 
 export interface CorrectionStats {
@@ -24,9 +27,9 @@ export interface CorrectionStats {
 export class CorrectionManager {
   private aiClient?: AIClient;
   private textExtractor: TextExtractor;
-  private correctionHistory: Map<string, Correction[]> = new Map();
-  private undoStack: Array<{ document: string; corrections: Correction[] }> =
-    [];
+  private pendingCorrections = new Map<string, Correction[]>();
+  private correctionHistory = new Map<string, Correction[]>();
+  private undoStack: Array<{ document: string; corrections: Correction[] }> = [];
 
   constructor() {
     this.textExtractor = new TextExtractor();
@@ -40,371 +43,443 @@ export class CorrectionManager {
     return this.aiClient;
   }
 
-  async correctBlocks(
-    editor: vscode.TextEditor,
-    texts: ExtractedText[],
-    options: CorrectionOptions = {}
-  ): Promise<{ corrections: Correction[]; stats: CorrectionStats }> {
-    const startTime = Date.now();
-    const corrections: Correction[] = [];
-    let cached = 0;
-    let failed = 0;
-
-    await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: "Correction en cours...",
-        cancellable: true,
-      },
-      async (progress, token) => {
-        for (let i = 0; i < texts.length; i++) {
-          if (token.isCancellationRequested) {
-            break;
-          }
-
-          const text = texts[i];
-          progress.report({
-            message: `${i + 1}/${texts.length}`,
-            increment: 100 / texts.length,
-          });
-
-          try {
-            let corrected = cacheService.get(text.text);
-            let fromCache = false;
-
-            if (corrected) {
-              fromCache = true;
-              cached++;
-            } else {
-              corrected = await this.getAIClient().getCorrection(
-                text.text,
-                options
-              );
-              if (corrected) {
-                cacheService.set(text.text, corrected);
-              } else {
-                corrected = text.text;
-                failed++;
-              }
-            }
-
-            corrections.push({
-              text: corrected,
-              start: text.start,
-              end: text.end,
-              original: text.text,
-              confidence: text.confidence,
-            });
-          } catch (error) {
-            console.error(
-              `Erreur lors de la correction de "${text.text}":`,
-              error
-            );
-            failed++;
-            corrections.push({
-              text: text.text,
-              start: text.start,
-              end: text.end,
-              original: text.text,
-              confidence: 0,
-            });
-          }
-        }
-      }
-    );
-
-    const stats: CorrectionStats = {
-      totalTexts: texts.length,
-      corrected: corrections.length - failed,
-      cached,
-      failed,
-      duration: Date.now() - startTime,
-    };
-
-    return { corrections, stats };
-  }
-
-  async correctTextDetailed(
-    textBlock: ExtractedText,
-    options: CorrectionOptions = {}
-  ): Promise<Correction & { result?: CorrectionResult }> {
-    let result = await this.getAIClient().getCorrectionDetailed(
-      textBlock.text,
-      options
-    );
-
-    if (!result) {
-      const corrected = await this.getAIClient().getCorrection(
-        textBlock.text,
-        options
-      );
-      if (corrected) {
-        cacheService.set(textBlock.text, corrected);
-      }
-
-      return {
-        text: corrected || textBlock.text,
-        start: textBlock.start,
-        end: textBlock.end,
-        original: textBlock.text,
-        confidence: textBlock.confidence,
-      };
-    }
-
-    cacheService.set(textBlock.text, result.correctedText);
-
-    return {
-      text: result.correctedText,
-      start: textBlock.start,
-      end: textBlock.end,
-      original: textBlock.text,
-      confidence: result.confidence,
-      changes: result.changes,
-      result,
-    };
-  }
-
-  async applyCorrections(
+  async analyzeDocument(
     editor?: vscode.TextEditor,
     options: CorrectionOptions = {}
   ): Promise<{ corrections: Correction[]; stats: CorrectionStats }> {
-    editor = editor || vscode.window.activeTextEditor;
-    if (!editor) {
-      vscode.window.showWarningMessage(
-        "Aucun éditeur actif pour appliquer les corrections."
-      );
+    const activeEditor = editor || vscode.window.activeTextEditor;
+    if (!activeEditor) {
       return {
         corrections: [],
-        stats: {
-          totalTexts: 0,
-          corrected: 0,
-          cached: 0,
-          failed: 0,
-          duration: 0,
-        },
+        stats: this.createEmptyStats(),
       };
     }
 
-    const document = editor.document;
+    const document = activeEditor.document;
     const config = ConfigurationManager.getConfig();
-
     const texts = this.textExtractor.extractFromDocument(document, {
       language: config.language,
       ignorePatterns: config.ignorePatterns,
     });
 
-    if (!texts.length) {
-      vscode.window.showInformationMessage("Aucun texte à corriger trouvé.");
+    const result = await this.buildCorrections(activeEditor, texts, {
+      ...options,
+      language: options.language || config.language,
+      customPrompt: options.customPrompt || config.customPrompt,
+    });
+
+    this.pendingCorrections.set(document.uri.toString(), result.corrections);
+    return result;
+  }
+
+  async analyzeSelection(
+    editor?: vscode.TextEditor,
+    options: CorrectionOptions = {}
+  ): Promise<{ corrections: Correction[]; stats: CorrectionStats }> {
+    const activeEditor = editor || vscode.window.activeTextEditor;
+    if (!activeEditor) {
       return {
         corrections: [],
-        stats: {
-          totalTexts: 0,
-          corrected: 0,
-          cached: 0,
-          failed: 0,
-          duration: 0,
-        },
+        stats: this.createEmptyStats(),
       };
     }
 
-    const { corrections, stats } = await this.correctBlocks(
-      editor,
-      texts,
-      options
+    const selection = activeEditor.selection;
+    if (selection.isEmpty) {
+      return {
+        corrections: [],
+        stats: this.createEmptyStats(),
+      };
+    }
+
+    const config = ConfigurationManager.getConfig();
+    const texts = this.textExtractor.extractFromSelection(
+      activeEditor.document,
+      selection,
+      {
+        language: config.language,
+        ignorePatterns: config.ignorePatterns,
+      }
     );
 
-    this.saveToUndoStack(document.uri.toString(), corrections);
-
-    const success = await editor.edit((editBuilder) => {
-      corrections.forEach((c) => {
-        if (c.text !== c.original) {
-          editBuilder.replace(new vscode.Range(c.start, c.end), c.text);
-        }
-      });
+    const result = await this.buildCorrections(activeEditor, texts, {
+      ...options,
+      language: options.language || config.language,
+      customPrompt: options.customPrompt || config.customPrompt,
     });
 
-    if (success) {
-      this.showStats(stats);
-      this.correctionHistory.set(document.uri.toString(), corrections);
-    }
-
-    return { corrections, stats };
-  }
-
-  async correctSelection(
-    editor?: vscode.TextEditor,
-    options: CorrectionOptions = {}
-  ): Promise<Correction[]> {
-    editor = editor || vscode.window.activeTextEditor;
-    if (!editor) {
-      vscode.window.showWarningMessage("Aucun éditeur actif.");
-      return [];
-    }
-
-    const selection = editor.selection;
-    if (selection.isEmpty) {
-      vscode.window.showInformationMessage("Aucune sélection.");
-      return [];
-    }
-
-    const document = editor.document;
-    const texts = this.textExtractor.extractFromSelection(document, selection, {
-      ignorePatterns: ConfigurationManager.getConfig().ignorePatterns,
-    });
-
-    if (!texts.length) {
-      vscode.window.showInformationMessage(
-        "Aucun texte à corriger dans la sélection."
-      );
-      return [];
-    }
-
-    const { corrections } = await this.correctBlocks(editor, texts, options);
-
-    await editor.edit((editBuilder) => {
-      corrections.forEach((c) => {
-        if (c.text !== c.original) {
-          editBuilder.replace(new vscode.Range(c.start, c.end), c.text);
-        }
-      });
-    });
-
-    return corrections;
+    this.pendingCorrections.set(
+      activeEditor.document.uri.toString(),
+      result.corrections
+    );
+    return result;
   }
 
   async previewCorrections(editor?: vscode.TextEditor): Promise<void> {
-    editor = editor || vscode.window.activeTextEditor;
-    if (!editor) {
+    const activeEditor = editor || vscode.window.activeTextEditor;
+    if (!activeEditor) {
       return;
     }
 
-    const document = editor.document;
-    const texts = this.textExtractor.extractFromDocument(document);
+    let corrections = this.getPendingCorrections(activeEditor);
+    if (!corrections.length) {
+      corrections = (await this.analyzeDocument(activeEditor)).corrections;
+    }
 
-    if (!texts.length) {
-      vscode.window.showInformationMessage("Aucun texte à corriger trouvé.");
+    if (!corrections.length) {
+      vscode.window.showInformationMessage("Aucune correction necessaire.");
       return;
     }
 
-    const { corrections } = await this.correctBlocks(editor, texts);
-    const changes = corrections.filter((c) => c.text !== c.original);
-
-    if (!changes.length) {
-      vscode.window.showInformationMessage("Aucune correction nécessaire.");
-      return;
-    }
-
-    const items = changes.map((c) => ({
-      label: `Ligne ${c.start.line + 1}`,
-      description: c.original,
-      detail: `→ ${c.text}`,
-      correction: c,
+    const items = corrections.map((correction) => ({
+      label: `Ligne ${correction.start.line + 1}`,
+      description: correction.original || "",
+      detail: correction.text,
+      correctionId: correction.id,
     }));
 
     const selected = await vscode.window.showQuickPick(items, {
-      placeHolder: "Sélectionnez une correction à appliquer",
+      placeHolder: "Selectionnez les corrections a appliquer",
       canPickMany: true,
     });
 
-    if (selected && selected.length > 0) {
-      await editor.edit((editBuilder) => {
-        selected.forEach((item) => {
-          const c = item.correction;
-          editBuilder.replace(new vscode.Range(c.start, c.end), c.text);
-        });
-      });
+    if (!selected || selected.length === 0) {
+      return;
     }
+
+    const ids = new Set(selected.map((item) => item.correctionId));
+    const chosenCorrections = corrections.filter((correction) =>
+      ids.has(correction.id)
+    );
+
+    await this.applyCorrections(activeEditor, chosenCorrections);
+  }
+
+  async applyCorrections(
+    editor?: vscode.TextEditor,
+    corrections?: Correction[]
+  ): Promise<{ corrections: Correction[]; stats: CorrectionStats }> {
+    const activeEditor = editor || vscode.window.activeTextEditor;
+    if (!activeEditor) {
+      return {
+        corrections: [],
+        stats: this.createEmptyStats(),
+      };
+    }
+
+    const documentUri = activeEditor.document.uri.toString();
+    const suggestions =
+      corrections && corrections.length > 0
+        ? corrections
+        : this.getPendingCorrections(activeEditor);
+
+    if (!suggestions.length) {
+      const analysis = await this.analyzeDocument(activeEditor);
+      if (!analysis.corrections.length) {
+        return analysis;
+      }
+      return this.applyCorrections(activeEditor, analysis.corrections);
+    }
+
+    const sortedCorrections = [...suggestions].sort((left, right) =>
+      this.comparePositionsDescending(left.start, right.start)
+    );
+
+    this.saveToUndoStack(documentUri, sortedCorrections);
+
+    const success = await activeEditor.edit((editBuilder) => {
+      sortedCorrections.forEach((correction) => {
+        if (correction.original && correction.text !== correction.original) {
+          editBuilder.replace(
+            new vscode.Range(correction.start, correction.end),
+            correction.text
+          );
+        }
+      });
+    });
+
+    if (!success) {
+      throw new Error("Impossible d'appliquer les corrections.");
+    }
+
+    const remainingCorrections = this.getPendingCorrections(activeEditor).filter(
+      (pendingCorrection) =>
+        !sortedCorrections.some(
+          (appliedCorrection) => appliedCorrection.id === pendingCorrection.id
+        )
+    );
+
+    this.pendingCorrections.set(documentUri, remainingCorrections);
+    this.correctionHistory.set(documentUri, sortedCorrections);
+
+    return {
+      corrections: sortedCorrections,
+      stats: {
+        totalTexts: sortedCorrections.length,
+        corrected: sortedCorrections.length,
+        cached: 0,
+        failed: 0,
+        duration: 0,
+      },
+    };
+  }
+
+  async applyCorrectionById(
+    correctionId: string,
+    editor?: vscode.TextEditor
+  ): Promise<Correction | undefined> {
+    const activeEditor = editor || vscode.window.activeTextEditor;
+    if (!activeEditor) {
+      return undefined;
+    }
+
+    const correction = this.getPendingCorrections(activeEditor).find(
+      (item) => item.id === correctionId
+    );
+
+    if (!correction) {
+      return undefined;
+    }
+
+    await this.applyCorrections(activeEditor, [correction]);
+    return correction;
+  }
+
+  ignoreCorrection(correctionId: string, editor?: vscode.TextEditor): boolean {
+    const activeEditor = editor || vscode.window.activeTextEditor;
+    if (!activeEditor) {
+      return false;
+    }
+
+    const documentUri = activeEditor.document.uri.toString();
+    const existing = this.getPendingCorrections(activeEditor);
+    const filtered = existing.filter((correction) => correction.id !== correctionId);
+
+    if (filtered.length === existing.length) {
+      return false;
+    }
+
+    this.pendingCorrections.set(documentUri, filtered);
+    return true;
   }
 
   async undoCorrections(editor?: vscode.TextEditor): Promise<void> {
-    editor = editor || vscode.window.activeTextEditor;
-    if (!editor) {
+    const activeEditor = editor || vscode.window.activeTextEditor;
+    if (!activeEditor) {
       return;
     }
 
     const lastUndo = this.undoStack.pop();
-    if (!lastUndo || lastUndo.document !== editor.document.uri.toString()) {
-      vscode.window.showInformationMessage("Aucune correction à annuler.");
+    if (!lastUndo || lastUndo.document !== activeEditor.document.uri.toString()) {
+      vscode.window.showInformationMessage("Aucune correction a annuler.");
       return;
     }
 
-    await editor.edit((editBuilder) => {
-      lastUndo.corrections.forEach((c) => {
-        if (c.original) {
-          editBuilder.replace(new vscode.Range(c.start, c.end), c.original);
+    const corrections = [...lastUndo.corrections].sort((left, right) =>
+      this.comparePositionsDescending(left.start, right.start)
+    );
+
+    await activeEditor.edit((editBuilder) => {
+      corrections.forEach((correction) => {
+        if (correction.original !== undefined) {
+          editBuilder.replace(
+            new vscode.Range(correction.start, correction.end),
+            correction.original
+          );
         }
       });
     });
 
-    vscode.window.showInformationMessage("Corrections annulées.");
+    vscode.window.showInformationMessage("Corrections annulees.");
   }
 
   clearCache(): void {
     cacheService.clear();
-    vscode.window.showInformationMessage("Cache de corrections effacé.");
+    vscode.window.showInformationMessage("Cache des corrections vide.");
+  }
+
+  clearPendingCorrections(editor?: vscode.TextEditor): void {
+    const activeEditor = editor || vscode.window.activeTextEditor;
+    if (!activeEditor) {
+      return;
+    }
+
+    this.pendingCorrections.delete(activeEditor.document.uri.toString());
+  }
+
+  getPendingCorrections(editorOrUri?: vscode.TextEditor | string): Correction[] {
+    if (!editorOrUri) {
+      return [];
+    }
+
+    const documentUri =
+      typeof editorOrUri === "string"
+        ? editorOrUri
+        : editorOrUri.document.uri.toString();
+
+    return this.pendingCorrections.get(documentUri) || [];
+  }
+
+  getCorrectionAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position
+  ): Correction | undefined {
+    return this.getPendingCorrections(document.uri.toString()).find((correction) =>
+      new vscode.Range(correction.start, correction.end).contains(position)
+    );
   }
 
   getHistory(documentUri: string): Correction[] | undefined {
     return this.correctionHistory.get(documentUri);
   }
 
-  private saveToUndoStack(
-    documentUri: string,
-    corrections: Correction[]
-  ): void {
+  async analyzeText(editor?: vscode.TextEditor): Promise<void> {
+    const activeEditor = editor || vscode.window.activeTextEditor;
+    if (!activeEditor) {
+      return;
+    }
+
+    const texts = this.textExtractor.extractFromDocument(activeEditor.document);
+    if (!texts.length) {
+      vscode.window.showInformationMessage("Aucun texte a analyser.");
+      return;
+    }
+
+    const totalLength = texts.reduce((sum, text) => sum + text.text.length, 0);
+    const avgConfidence =
+      texts.reduce((sum, text) => sum + text.confidence, 0) / texts.length;
+
+    const message = [
+      "Analyse du texte",
+      `${texts.length} segment(s) detecte(s)`,
+      `${totalLength} caracteres`,
+      `Confiance moyenne ${(avgConfidence * 100).toFixed(1)}%`,
+    ].join(" | ");
+
+    vscode.window.showInformationMessage(message);
+  }
+
+  private async buildCorrections(
+    editor: vscode.TextEditor,
+    texts: ExtractedText[],
+    options: CorrectionOptions
+  ): Promise<{ corrections: Correction[]; stats: CorrectionStats }> {
+    const startTime = Date.now();
+    const corrections: Correction[] = [];
+    let cached = 0;
+    let failed = 0;
+
+    for (const textBlock of texts) {
+      try {
+        const cachedValue = cacheService.get(textBlock.text);
+
+        if (cachedValue && cachedValue !== textBlock.text) {
+          cached++;
+          corrections.push(
+            this.createCorrection(editor.document, textBlock, {
+              correctedText: cachedValue,
+              originalText: textBlock.text,
+              changes: [],
+              confidence: textBlock.confidence,
+              model: ConfigurationManager.getConfig().model,
+            })
+          );
+          continue;
+        }
+
+        const result = await this.getAIClient().getCorrectionDetailed(
+          textBlock.text,
+          {
+            ...options,
+            context: textBlock.context,
+          }
+        );
+
+        if (!result || result.correctedText.trim() === textBlock.text.trim()) {
+          continue;
+        }
+
+        cacheService.set(textBlock.text, result.correctedText);
+        corrections.push(this.createCorrection(editor.document, textBlock, result));
+      } catch (error) {
+        failed++;
+        console.error("Erreur lors de l'analyse d'un segment:", error);
+      }
+    }
+
+    const filteredCorrections = corrections.filter(
+      (correction) =>
+        correction.original !== undefined &&
+        correction.original.trim() !== correction.text.trim()
+    );
+
+    return {
+      corrections: filteredCorrections,
+      stats: {
+        totalTexts: texts.length,
+        corrected: filteredCorrections.length,
+        cached,
+        failed,
+        duration: Date.now() - startTime,
+      },
+    };
+  }
+
+  private createCorrection(
+    document: vscode.TextDocument,
+    textBlock: ExtractedText,
+    result: CorrectionResult
+  ): Correction {
+    return {
+      id: this.createCorrectionId(document.uri.toString(), textBlock),
+      text: result.correctedText.trim(),
+      start: textBlock.start,
+      end: textBlock.end,
+      original: textBlock.text,
+      confidence: result.confidence ?? textBlock.confidence,
+      changes: result.changes,
+      context: textBlock.context,
+      documentUri: document.uri.toString(),
+    };
+  }
+
+  private createCorrectionId(documentUri: string, textBlock: ExtractedText): string {
+    return [
+      documentUri,
+      textBlock.start.line,
+      textBlock.start.character,
+      textBlock.end.line,
+      textBlock.end.character,
+      textBlock.text,
+    ].join(":");
+  }
+
+  private saveToUndoStack(documentUri: string, corrections: Correction[]): void {
     this.undoStack.push({ document: documentUri, corrections });
 
-    if (this.undoStack.length > 10) {
+    if (this.undoStack.length > 20) {
       this.undoStack.shift();
     }
   }
 
-  private showStats(stats: CorrectionStats): void {
-    const message = `✓ Correction terminée: ${stats.corrected}/${
-      stats.totalTexts
-    } textes corrigés (${stats.cached} depuis le cache) en ${(
-      stats.duration / 1000
-    ).toFixed(1)}s`;
-
-    if (stats.failed > 0) {
-      vscode.window.showWarningMessage(`${message} - ${stats.failed} échecs`);
-    } else {
-      vscode.window.showInformationMessage(message);
-    }
+  private createEmptyStats(): CorrectionStats {
+    return {
+      totalTexts: 0,
+      corrected: 0,
+      cached: 0,
+      failed: 0,
+      duration: 0,
+    };
   }
 
-  async analyzeText(editor?: vscode.TextEditor): Promise<void> {
-    editor = editor || vscode.window.activeTextEditor;
-    if (!editor) {
-      return;
+  private comparePositionsDescending(
+    left: vscode.Position,
+    right: vscode.Position
+  ): number {
+    if (left.line !== right.line) {
+      return right.line - left.line;
     }
 
-    const texts = this.textExtractor.extractFromDocument(editor.document);
-
-    if (!texts.length) {
-      vscode.window.showInformationMessage("Aucun texte à analyser.");
-      return;
-    }
-
-    const totalLength = texts.reduce((sum, t) => sum + t.text.length, 0);
-    const avgConfidence =
-      texts.reduce((sum, t) => sum + t.confidence, 0) / texts.length;
-
-    const byType = texts.reduce((acc, t) => {
-      acc[t.type] = (acc[t.type] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-
-    const info = `
-Analyse du texte:
-- ${texts.length} segments détectés
-- ${totalLength} caractères au total
-- Confiance moyenne: ${(avgConfidence * 100).toFixed(1)}%
-- Commentaires: ${byType.comment || 0}
-- Chaînes: ${byType.string || 0}
-- Docstrings: ${byType.docstring || 0}
-    `.trim();
-
-    vscode.window.showInformationMessage(info);
+    return right.character - left.character;
   }
 }

@@ -1,257 +1,232 @@
 import * as vscode from "vscode";
-import { CorrectionManager } from "../core/correctionManager";
-import { showCorrectionPanel } from "../ui/panel/panelController";
-import { decorateCorrections, clearDecorations } from "../ui/panel/decorations";
-import { clearDiagnostics, updateDiagnostics } from "../ui/diagnostics";
-import { updateStatusBar, hideStatusBar } from "../ui/statusBar";
+import { Correction, CorrectionManager } from "../core/correctionManager";
 import { ConfigurationManager } from "../config/settings";
+import { clearDiagnostics, updateDiagnostics } from "../ui/diagnostics";
+import { decorateCorrections, clearDecorations } from "../ui/panel/decorations";
+import { showCorrectionPanel } from "../ui/panel/panelController";
+import { hideStatusBar, updateStatusBar } from "../ui/statusBar";
 
 const correctionManager = new CorrectionManager();
 
-export async function scanFile() {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) {
-    return vscode.window.showWarningMessage("Aucun fichier ouvert");
+interface AnalyzeOptions {
+  selectionOnly?: boolean;
+  silent?: boolean;
+  openPanel?: boolean;
+}
+
+async function ensureConfigured(): Promise<boolean> {
+  if (ConfigurationManager.isConfigValid()) {
+    return true;
   }
 
-  if (!ConfigurationManager.isConfigValid()) {
-    const configure = await vscode.window.showWarningMessage(
-      "Clé API non configurée. Voulez-vous la configurer maintenant ?",
-      "Configurer",
-      "Annuler"
-    );
-    if (configure === "Configurer") {
-      await ConfigurationManager.promptApiKey();
+  const configure = await vscode.window.showWarningMessage(
+    "La cle API n'est pas configuree.",
+    "Configurer",
+    "Annuler"
+  );
+
+  if (configure === "Configurer") {
+    return ConfigurationManager.promptApiKey();
+  }
+
+  return false;
+}
+
+async function analyzeEditor(
+  editor: vscode.TextEditor,
+  options: AnalyzeOptions = {}
+): Promise<Correction[]> {
+  if (!(await ensureConfigured())) {
+    return [];
+  }
+
+  const runAnalysis = async (): Promise<Correction[]> => {
+    const result = options.selectionOnly
+      ? await correctionManager.analyzeSelection(editor, {
+          language: ConfigurationManager.getConfig().language,
+        })
+      : await correctionManager.analyzeDocument(editor, {
+          language: ConfigurationManager.getConfig().language,
+        });
+
+    const corrections = result.corrections;
+
+    clearDiagnostics(editor.document);
+    clearDecorations(editor);
+    updateDiagnostics(editor.document, corrections);
+    decorateCorrections(editor, corrections, options.selectionOnly);
+    updateStatusBar(corrections);
+
+    if (options.openPanel !== false) {
+      showCorrectionPanel(corrections, result.stats);
     }
-    return;
-  }
 
-  await vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: "TextLint AI : Analyse en cours...",
-      cancellable: true,
-    },
-    async (progress, token) => {
-      try {
-        progress.report({ message: "Extraction du texte...", increment: 10 });
-
-        const { corrections, stats } = await correctionManager.applyCorrections(
-          editor,
-          { language: ConfigurationManager.getConfig().language }
+    if (!options.silent) {
+      if (corrections.length > 0) {
+        vscode.window.showInformationMessage(
+          `${corrections.length} correction(s) detectee(s). Survolez le texte souligne pour corriger.`
         );
-
-        if (token.isCancellationRequested) {
-          return;
-        }
-
-        progress.report({
-          message: "Application des décorations...",
-          increment: 30,
-        });
-
-        decorateCorrections(editor, corrections);
-        updateDiagnostics(editor.document, corrections);
-        updateStatusBar(corrections);
-
-        progress.report({
-          message: "Affichage des résultats...",
-          increment: 30,
-        });
-
-        showCorrectionPanel(corrections, stats);
-
-        if (corrections.length > 0) {
-          vscode.window.showInformationMessage(
-            `✓ ${stats.corrected} correction(s) trouvée(s) en ${(
-              stats.duration / 1000
-            ).toFixed(1)}s`
-          );
-        } else {
-          vscode.window.showInformationMessage(
-            "✓ Aucune correction nécessaire"
-          );
-        }
-      } catch (error) {
-        console.error("Erreur lors de l'analyse:", error);
-        vscode.window.showErrorMessage(
-          `Erreur lors de l'analyse: ${
-            error instanceof Error ? error.message : "Erreur inconnue"
-          }`
-        );
+      } else {
+        vscode.window.showInformationMessage("Aucune correction necessaire.");
       }
     }
+
+    return corrections;
+  };
+
+  if (options.silent) {
+    return runAnalysis();
+  }
+
+  return vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: options.selectionOnly
+        ? "Analyse de la selection..."
+        : "Analyse du document...",
+    },
+    runAnalysis
   );
+}
+
+export async function scanFile(silent: boolean = false) {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    return vscode.window.showWarningMessage("Aucun fichier ouvert.");
+  }
+
+  return analyzeEditor(editor, {
+    silent,
+    openPanel: !silent,
+  });
 }
 
 export async function scanSelection() {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
-    return vscode.window.showWarningMessage("Aucun fichier ouvert");
+    return vscode.window.showWarningMessage("Aucun fichier ouvert.");
   }
 
   if (editor.selection.isEmpty) {
-    return vscode.window.showWarningMessage("Aucune sélection");
+    return vscode.window.showWarningMessage("Aucune selection.");
   }
 
-  if (!ConfigurationManager.isConfigValid()) {
-    const configure = await vscode.window.showWarningMessage(
-      "Clé API non configurée. Voulez-vous la configurer maintenant ?",
-      "Configurer",
-      "Annuler"
-    );
-    if (configure === "Configurer") {
-      await ConfigurationManager.promptApiKey();
-    }
-    return;
-  }
-
-  await vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: "TextLint AI : Analyse de la sélection...",
-      cancellable: true,
-    },
-    async (progress, token) => {
-      try {
-        progress.report({ message: "Extraction du texte...", increment: 20 });
-
-        const corrections = await correctionManager.correctSelection(editor, {
-          language: ConfigurationManager.getConfig().language,
-        });
-
-        if (token.isCancellationRequested) {
-          return;
-        }
-
-        progress.report({
-          message: "Application des corrections...",
-          increment: 40,
-        });
-
-        decorateCorrections(editor, corrections, editor.selection);
-        showCorrectionPanel(corrections);
-
-        if (corrections.length > 0) {
-          vscode.window.showInformationMessage(
-            `✓ ${corrections.length} correction(s) appliquée(s) dans la sélection`
-          );
-        } else {
-          vscode.window.showInformationMessage(
-            "✓ Aucune correction nécessaire dans la sélection"
-          );
-        }
-      } catch (error) {
-        console.error("Erreur lors de l'analyse de la sélection:", error);
-        vscode.window.showErrorMessage(
-          `Erreur: ${
-            error instanceof Error ? error.message : "Erreur inconnue"
-          }`
-        );
-      }
-    }
-  );
+  return analyzeEditor(editor, {
+    selectionOnly: true,
+  });
 }
 
 export async function applyCorrection() {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
-    return vscode.window.showWarningMessage("Aucun fichier ouvert");
+    return vscode.window.showWarningMessage("Aucun fichier ouvert.");
   }
 
-  const confirm = await vscode.window.showInformationMessage(
-    "Appliquer toutes les corrections ?",
-    { modal: true },
-    "Oui",
-    "Non"
-  );
+  const pendingCorrections = correctionManager.getPendingCorrections(editor);
+  if (!pendingCorrections.length) {
+    await analyzeEditor(editor, { silent: true, openPanel: false });
+  }
 
-  if (confirm !== "Oui") {
+  const correctionsToApply = correctionManager.getPendingCorrections(editor);
+  if (!correctionsToApply.length) {
+    return vscode.window.showInformationMessage("Aucune correction a appliquer.");
+  }
+
+  await correctionManager.applyCorrections(editor, correctionsToApply);
+  correctionManager.clearPendingCorrections(editor);
+  clearDiagnostics(editor.document);
+  clearDecorations(editor);
+  updateStatusBar([]);
+
+  vscode.window.showInformationMessage(
+    `${correctionsToApply.length} correction(s) appliquee(s).`
+  );
+}
+
+export async function applySingleCorrection(correctionId: string) {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
     return;
   }
 
-  await vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: "Application des corrections...",
-      cancellable: false,
-    },
-    async () => {
-      try {
-        const { corrections, stats } = await correctionManager.applyCorrections(
-          editor
-        );
-
-        clearDiagnostics();
-        clearDecorations(editor);
-        updateStatusBar([]);
-
-        vscode.window.showInformationMessage(
-          `✓ ${corrections.length} correction(s) appliquée(s) en ${(
-            stats.duration / 1000
-          ).toFixed(1)}s`
-        );
-      } catch (error) {
-        console.error("Erreur lors de l'application:", error);
-        vscode.window.showErrorMessage(
-          `Erreur: ${
-            error instanceof Error ? error.message : "Erreur inconnue"
-          }`
-        );
-      }
-    }
+  const appliedCorrection = await correctionManager.applyCorrectionById(
+    correctionId,
+    editor
   );
+
+  if (!appliedCorrection) {
+    return;
+  }
+
+  const remainingCorrections = correctionManager.getPendingCorrections(editor);
+  clearDiagnostics(editor.document);
+  clearDecorations(editor);
+  updateDiagnostics(editor.document, remainingCorrections);
+  decorateCorrections(editor, remainingCorrections);
+  updateStatusBar(remainingCorrections);
+  showCorrectionPanel(remainingCorrections);
+
+  vscode.window.showInformationMessage("Correction appliquee.");
+}
+
+export async function ignoreSingleCorrection(correctionId: string) {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    return;
+  }
+
+  const removed = correctionManager.ignoreCorrection(correctionId, editor);
+  if (!removed) {
+    return;
+  }
+
+  const remainingCorrections = correctionManager.getPendingCorrections(editor);
+  clearDiagnostics(editor.document);
+  clearDecorations(editor);
+  updateDiagnostics(editor.document, remainingCorrections);
+  decorateCorrections(editor, remainingCorrections);
+  updateStatusBar(remainingCorrections);
+  showCorrectionPanel(remainingCorrections);
+
+  vscode.window.showInformationMessage("Correction ignoree.");
 }
 
 export async function previewCorrections() {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
-    return vscode.window.showWarningMessage("Aucun fichier ouvert");
+    return vscode.window.showWarningMessage("Aucun fichier ouvert.");
   }
 
-  try {
-    await correctionManager.previewCorrections(editor);
-  } catch (error) {
-    console.error("Erreur lors de la prévisualisation:", error);
-    vscode.window.showErrorMessage(
-      `Erreur: ${error instanceof Error ? error.message : "Erreur inconnue"}`
-    );
-  }
+  await correctionManager.previewCorrections(editor);
+
+  const remainingCorrections = correctionManager.getPendingCorrections(editor);
+  clearDiagnostics(editor.document);
+  clearDecorations(editor);
+  updateDiagnostics(editor.document, remainingCorrections);
+  decorateCorrections(editor, remainingCorrections);
+  updateStatusBar(remainingCorrections);
+  showCorrectionPanel(remainingCorrections);
 }
 
 export async function undoCorrections() {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
-    return vscode.window.showWarningMessage("Aucun fichier ouvert");
+    return vscode.window.showWarningMessage("Aucun fichier ouvert.");
   }
 
-  try {
-    await correctionManager.undoCorrections(editor);
-    clearDiagnostics();
-    clearDecorations(editor);
-    updateStatusBar([]);
-  } catch (error) {
-    console.error("Erreur lors de l'annulation:", error);
-    vscode.window.showErrorMessage(
-      `Erreur: ${error instanceof Error ? error.message : "Erreur inconnue"}`
-    );
-  }
+  await correctionManager.undoCorrections(editor);
+  clearDiagnostics(editor.document);
+  clearDecorations(editor);
+  updateStatusBar([]);
 }
 
 export async function analyzeText() {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
-    return vscode.window.showWarningMessage("Aucun fichier ouvert");
+    return vscode.window.showWarningMessage("Aucun fichier ouvert.");
   }
 
-  try {
-    await correctionManager.analyzeText(editor);
-  } catch (error) {
-    console.error("Erreur lors de l'analyse:", error);
-    vscode.window.showErrorMessage(
-      `Erreur: ${error instanceof Error ? error.message : "Erreur inconnue"}`
-    );
-  }
+  await correctionManager.analyzeText(editor);
 }
 
 export async function clearCache() {
@@ -267,8 +242,12 @@ export async function clearCache() {
   }
 }
 
-export async function showPanel(corrections: any[] = []) {
-  showCorrectionPanel(corrections);
+export async function showPanel(corrections?: Correction[]) {
+  const editor = vscode.window.activeTextEditor;
+  const items =
+    corrections || (editor ? correctionManager.getPendingCorrections(editor) : []);
+
+  showCorrectionPanel(items);
 }
 
 export async function refresh() {
@@ -277,9 +256,35 @@ export async function refresh() {
     return;
   }
 
-  clearDiagnostics();
-  clearDecorations(editor);
-  await scanFile();
+  await analyzeEditor(editor, { silent: false });
+}
+
+export async function autoAnalyzeDocument(document: vscode.TextDocument) {
+  const editor = vscode.window.visibleTextEditors.find(
+    (item) => item.document.uri.toString() === document.uri.toString()
+  );
+
+  if (!editor || !ConfigurationManager.isConfigValid()) {
+    return;
+  }
+
+  await analyzeEditor(editor, {
+    silent: true,
+    openPanel: false,
+  });
+}
+
+export function getPendingCorrectionsForDocument(
+  document: vscode.TextDocument
+): Correction[] {
+  return correctionManager.getPendingCorrections(document.uri.toString());
+}
+
+export function getCorrectionAtPosition(
+  document: vscode.TextDocument,
+  position: vscode.Position
+): Correction | undefined {
+  return correctionManager.getCorrectionAtPosition(document, position);
 }
 
 export function dispose() {
