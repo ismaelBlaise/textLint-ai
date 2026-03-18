@@ -46,21 +46,18 @@ export class ConfigurationManager {
   }
 
   static validateApiKey(apikey: string): boolean {
-    return /^sk-[a-zA-Z0-9]{32,}$/.test(apikey);
+    return apikey.trim().length > 0;
   }
 
   static async promptApiKey(): Promise<boolean> {
     const apikey = await vscode.window.showInputBox({
-      prompt: "Entrez votre clé API OpenAI personnelle",
+      prompt: "Entrez votre cle API OpenAI personnelle",
       ignoreFocusOut: true,
-      password: true,
-      placeHolder: "sk-...",
+      password: false,
+      placeHolder: "Votre cle API",
       validateInput: (value) => {
         if (!value) {
-          return "La clé API ne peut pas être vide";
-        }
-        if (!this.validateApiKey(value)) {
-          return "Format de clé API invalide (doit commencer par 'sk-')";
+          return "La cle API ne peut pas etre vide";
         }
         return null;
       },
@@ -72,12 +69,12 @@ export class ConfigurationManager {
         apikey,
         vscode.ConfigurationTarget.Global
       );
-      vscode.window.showInformationMessage("✓ Clé API enregistrée avec succès");
+      vscode.window.showInformationMessage("Cle API enregistree avec succes");
       return true;
-    } else {
-      vscode.window.showWarningMessage("⚠ Clé API non définie");
-      return false;
     }
+
+    vscode.window.showWarningMessage("Cle API non definie");
+    return false;
   }
 
   static async updateConfig<K extends keyof TextlintConfig>(
@@ -102,7 +99,7 @@ export class ConfigurationManager {
       );
     }
 
-    vscode.window.showInformationMessage("Configuration réinitialisée");
+    vscode.window.showInformationMessage("Configuration reinitialisee");
   }
 
   static isConfigValid(): boolean {
