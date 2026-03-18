@@ -22,15 +22,22 @@ export interface CorrectionStats {
 }
 
 export class CorrectionManager {
-  private aiClient: AIClient;
+  private aiClient?: AIClient;
   private textExtractor: TextExtractor;
   private correctionHistory: Map<string, Correction[]> = new Map();
   private undoStack: Array<{ document: string; corrections: Correction[] }> =
     [];
 
   constructor() {
-    this.aiClient = new AIClient();
     this.textExtractor = new TextExtractor();
+  }
+
+  private getAIClient(): AIClient {
+    if (!this.aiClient) {
+      this.aiClient = new AIClient();
+    }
+
+    return this.aiClient;
   }
 
   async correctBlocks(
@@ -69,7 +76,10 @@ export class CorrectionManager {
               fromCache = true;
               cached++;
             } else {
-              corrected = await this.aiClient.getCorrection(text.text, options);
+              corrected = await this.getAIClient().getCorrection(
+                text.text,
+                options
+              );
               if (corrected) {
                 cacheService.set(text.text, corrected);
               } else {
@@ -118,13 +128,13 @@ export class CorrectionManager {
     textBlock: ExtractedText,
     options: CorrectionOptions = {}
   ): Promise<Correction & { result?: CorrectionResult }> {
-    let result = await this.aiClient.getCorrectionDetailed(
+    let result = await this.getAIClient().getCorrectionDetailed(
       textBlock.text,
       options
     );
 
     if (!result) {
-      const corrected = await this.aiClient.getCorrection(
+      const corrected = await this.getAIClient().getCorrection(
         textBlock.text,
         options
       );
